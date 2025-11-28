@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sound.h"
+#include "../sound/sound.h"
 
 class AudioTrack {
     private:

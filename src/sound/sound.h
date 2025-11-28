@@ -1,14 +1,14 @@
 #pragma once
-#include "juce_header.h"
-#include "../external/JUCE/modules/juce_audio_processors/juce_audio_processors.h"
-#include "../external/JUCE/modules/juce_audio_basics/juce_audio_basics.h"
+#include "../juce_header.h"
+#include "../../external/JUCE/modules/juce_audio_processors/juce_audio_processors.h"
+#include "../../external/JUCE/modules/juce_audio_basics/juce_audio_basics.h"
 
 class Sound {
     public:
         Sound();
         static juce::AudioBuffer<float> load_from_file(const juce::File& file);
         void add_audio_plugin_instance(const juce::AudioPluginInstance);
-        ~Sound();
+        ~Sound() = default;
     private:
         double m_sample_rate;
         SampleTime m_time;
