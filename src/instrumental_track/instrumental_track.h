@@ -18,9 +18,10 @@ class InstrumentalTrack {
         InstrumentalTrack(const InstrumentalTrack&) = delete;
         InstrumentalTrack& operator=(const InstrumentalTrack&) = delete;
 
-
         const juce::String info();
         void add_midi_message(const juce::MidiMessage&, double);
+
+        void render_midifile_into_wav(std::string, std::string);
     private:
         std::string m_name;
         std::unique_ptr<juce::AudioPluginInstance> m_audio_plugin_instance;

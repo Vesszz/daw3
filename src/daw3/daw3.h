@@ -3,6 +3,8 @@
 #include "../../external/JUCE/modules/juce_audio_devices/juce_audio_devices.h"
 #include <memory>
 
+// TODO: std::unique_ptr<AudioEngine> which contains track handler and adm
+
 class DAW3 {
     public:
         DAW3();
