@@ -12,7 +12,7 @@ class DAW3 {
         juce::AudioDeviceManager& getAudioDeviceManager();
         void add_track(InstrumentalTrack&&);
         void add_track(AudioTrack&&);
-    private:
+    private:        
         std::unique_ptr<TrackHandler> m_track_handler;
         std::unique_ptr<juce::AudioDeviceManager> m_audio_device_manager;
 };

@@ -4,6 +4,8 @@
 #define JUCE_MODULE_AVAILABLE_juce_audio_basics 1
 
 #include "../external/JUCE/modules/juce_core/juce_core.h"
+#include "../external/JUCE/modules/juce_graphics/juce_graphics.h"
+#include "../external/JUCE/modules/juce_gui_basics/juce_gui_basics.h"
 
 // An amount of samples from the beginning ot the track
 // used to show time when sth should be played exactly;

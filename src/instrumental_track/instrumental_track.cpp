@@ -2,31 +2,26 @@
 #include <memory>
 #include "../../external/JUCE/modules/juce_audio_formats/juce_audio_formats.h"
 
-std::unique_ptr<juce::AudioPluginInstance> InstrumentalTrack::load_plugin(juce::File filename, float sampleRate, int blockSize)
-{
+std::unique_ptr<juce::AudioPluginInstance> InstrumentalTrack::load_plugin(juce::File filename, float sampleRate, int blockSize) {
     juce::AudioPluginFormatManager formatManager;
     formatManager.addDefaultFormats();
 
     juce::OwnedArray<juce::PluginDescription> foundTypes;
 
-    for (auto* fmt : formatManager.getFormats())
-    {
+    for (auto* fmt : formatManager.getFormats()) {
         if (fmt == nullptr) continue;
         fmt->findAllTypesForFile(foundTypes, filename.getFullPathName());
         if (foundTypes.size() > 0)
             break;
     }
     
-    if (foundTypes.size() == 0)
-    {
+    if (foundTypes.size() == 0) {
         return nullptr;
     }
 
     juce::String errorMessage;
-    std::unique_ptr<juce::AudioPluginInstance> inst =
-        formatManager.createPluginInstance(*foundTypes[0], sampleRate, blockSize, errorMessage);
-    if (!inst)
-    {
+    std::unique_ptr<juce::AudioPluginInstance> inst = formatManager.createPluginInstance(*foundTypes[0], sampleRate, blockSize, errorMessage);
+    if (!inst) {
         return nullptr; // TODO: show errorMessage
     }
     return inst;
@@ -41,93 +36,90 @@ const juce::String InstrumentalTrack::info() {
 }
 
 
-// TODO: refactor this plz
-
-void InstrumentalTrack::render_midifile_into_wav(std::string midiPath,std::string wavPath) {
-    juce::File midiFile(midiPath);
-    juce::FileInputStream midiStream(midiFile);
-    if (!midiStream.openedOk())
-        throw std::runtime_error("Failed to open MIDI file");
+static juce::MidiMessageSequence loadMidi(const std::string& path) {
+    juce::File file(path);
+    juce::FileInputStream stream(file);
+    if (!stream.openedOk()) throw std::runtime_error("Failed to open MIDI file");
 
     juce::MidiFile mf;
-    if (!mf.readFrom(midiStream))
-        throw std::runtime_error("Failed to read MIDI file");
+    if (!mf.readFrom(stream)) throw std::runtime_error("Failed to read MIDI file");
 
     mf.convertTimestampTicksToSeconds();
 
-    juce::MidiMessageSequence fullSequence;
-    for (int i = 0; i < mf.getNumTracks(); i++)
-        fullSequence.addSequence(*mf.getTrack(i), 0.0);
+    juce::MidiMessageSequence seq;
+    for (int i = 0; i < mf.getNumTracks(); ++i)
+        seq.addSequence(*mf.getTrack(i), 0.0);
 
-    fullSequence.updateMatchedPairs();
-
-    auto* plugin = m_audio_plugin_instance.get();
-    if (!plugin)
-        throw std::runtime_error("Audio plugin is null");
-
-    double sampleRate = 44100.0;
-    int blockSize     = 512;
-
-    plugin->prepareToPlay(sampleRate, blockSize);
-
-    int numChannels = plugin->getTotalNumOutputChannels();
-
-    juce::File outFile(wavPath);
-    outFile.deleteFile();
-
-    juce::WavAudioFormat wavFormat;
-    std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
-        outFile.createOutputStream().release(),
-        sampleRate,
-        (unsigned int)numChannels,
-        16,
-        {},
-        0
-    ));
-
-    if (!writer)
-        throw std::runtime_error("Failed to create WAV writer");
-
-    juce::AudioBuffer<float> audioBuffer(numChannels, blockSize);
-    juce::MidiBuffer midiBuffer;
-
-    double lengthSeconds = fullSequence.getEndTime();
-    int totalSamples = (int)(lengthSeconds * sampleRate);
-    int samplesRendered = 0;
-
-    int nextEvent = 0;
-
-    while (samplesRendered < totalSamples) {
-        audioBuffer.clear();
-        midiBuffer.clear();
-
-        double start = samplesRendered / sampleRate;
-        double end   = (samplesRendered + blockSize) / sampleRate;
-
-        while (nextEvent < fullSequence.getNumEvents()) {
-            auto* ev = fullSequence.getEventPointer(nextEvent);
-            double ts = ev->message.getTimeStamp();
-
-            if (ts >= end)
-                break;
-
-            if (ts >= start) {
-                int posInBlock = (int)((ts - start) * sampleRate);
-                midiBuffer.addEvent(ev->message, posInBlock);
-            }
-
-            nextEvent++;
-        }
-
-        juce::AudioSourceChannelInfo info(&audioBuffer, 0, blockSize);
-        juce::MidiBuffer mbCopy = midiBuffer;
-        plugin->processBlock(audioBuffer, mbCopy);
-
-        writer->writeFromAudioSampleBuffer(audioBuffer, 0, blockSize);
-
-        samplesRendered += blockSize;
-    }
-
-    plugin->releaseResources();
+    seq.updateMatchedPairs();
+    return seq;
 }
 
+static std::unique_ptr<juce::AudioFormatWriter> createWriter(const std::string& path, double sampleRate, int channels) {
+    juce::File file(path);
+    file.deleteFile();
+
+    juce::WavAudioFormat format;
+    auto stream = file.createOutputStream();
+    if (!stream) throw std::runtime_error("Failed to create output stream");
+
+    auto writer = std::unique_ptr<juce::AudioFormatWriter>(format.createWriterFor(stream.release(), sampleRate, (unsigned int)channels, 16, {}, 0));
+
+    if (!writer) throw std::runtime_error("Failed to create WAV writer");
+    return writer;
+}
+
+static void preparePlugin(juce::AudioPluginInstance* plugin, double sampleRate, int blockSize) {
+    if (!plugin) throw std::runtime_error("Audio plugin is null");
+    plugin->prepareToPlay(sampleRate, blockSize);
+}
+
+static void renderBlock(juce::AudioPluginInstance* plugin, juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi) {
+    juce::MidiBuffer copy = midi;
+    plugin->processBlock(audio, copy);
+}
+
+static void renderSequence(juce::AudioPluginInstance* plugin, juce::MidiMessageSequence& seq, juce::AudioFormatWriter& writer, double sampleRate, int blockSize) {
+    int channels = plugin->getTotalNumOutputChannels();
+    juce::AudioBuffer<float> audio(channels, blockSize);
+    juce::MidiBuffer midi;
+
+    int totalSamples = (int)(seq.getEndTime() * sampleRate);
+    int rendered = 0;
+    int nextEvent = 0;
+
+    while (rendered < totalSamples) {
+        audio.clear();
+        midi.clear();
+
+        double start = rendered / sampleRate;
+        double end   = (rendered + blockSize) / sampleRate;
+
+        while (nextEvent < seq.getNumEvents()) {
+            auto* ev = seq.getEventPointer(nextEvent);
+            double ts = ev->message.getTimeStamp();
+            if (ts >= end) break;
+            if (ts >= start)
+                midi.addEvent(ev->message, (int)((ts - start) * sampleRate));
+            ++nextEvent;
+        }
+
+        renderBlock(plugin, audio, midi);
+        writer.writeFromAudioSampleBuffer(audio, 0, blockSize);
+        rendered += blockSize;
+    }
+}
+
+void InstrumentalTrack::render_midifile_into_wav(std::string midiPath, std::string wavPath) {
+    auto sequence = loadMidi(midiPath);
+
+    auto* plugin = m_audio_plugin_instance.get();
+    double sampleRate = 44100.0;
+    int blockSize = 512;
+
+    preparePlugin(plugin, sampleRate, blockSize);
+
+    auto writer = createWriter(wavPath, sampleRate, plugin->getTotalNumOutputChannels());
+
+    renderSequence(plugin, sequence, *writer, sampleRate, blockSize);
+    plugin->releaseResources();
+}
