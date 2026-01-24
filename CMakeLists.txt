@@ -7,8 +7,11 @@ add_subdirectory(${JUCE_DIR})
 add_executable(DAW3
     src/main.cpp
     src/daw3/daw3.cpp
-    src/instrumental_track/instrumental_track.cpp
-    src/track_handler/track_handler.cpp
+    src/audio_engine/audio_engine.cpp
+    src/audio_engine/instrumental_track/instrumental_track.cpp
+    src/audio_engine/track_handler/track_handler.cpp
+    src/ui/main_window/main_window.cpp
+    src/ui/ui.cpp
 )
 
 target_compile_definitions(DAW3
