@@ -10,7 +10,9 @@ add_executable(DAW3
     src/audio_engine/audio_engine.cpp
     src/audio_engine/instrumental_track/instrumental_track.cpp
     src/audio_engine/track_handler/track_handler.cpp
+    src/ui/main_component/main_component.cpp
     src/ui/main_window/main_window.cpp
+    src/ui/pianoroll/pianoroll.cpp
     src/ui/ui.cpp
 )
 

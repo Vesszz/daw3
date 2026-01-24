@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../juce_header.h"
+#include "../main_component/main_component.h"
 
 class MainWindow : public juce::DocumentWindow {
     public:
@@ -8,6 +9,6 @@ class MainWindow : public juce::DocumentWindow {
         ~MainWindow() override;
         void closeButtonPressed() override;
     private:
-        std::unique_ptr<juce::Component> m_main_component;
+        std::unique_ptr<MainComponent> m_main_component;
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
 };
