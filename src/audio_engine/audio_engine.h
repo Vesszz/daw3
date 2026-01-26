@@ -6,10 +6,16 @@
 #include "../queue/queue.h"
 #include "../queue/midi_command.h"
 
+/**
+* @brief Хранит lock free очередь и track handler и связывает их друг с другом
+*/
 class AudioEngine : juce::AudioIODeviceCallback {
     public:
         explicit AudioEngine(std::shared_ptr<Queue<MidiCommand, 1024>>);
         ~AudioEngine();
+        /**
+        * @brief колл бек функция, которая вызывается каждый блок (512/44100 секунд) и обрабатывает real-time запросы от графического интерфейса
+        */
         void audioDeviceIOCallback(const float** inputChannelData,
                                int numInputChannels,
                                float** outputChannelData,

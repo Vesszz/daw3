@@ -2,6 +2,14 @@
 #include "juce_gui_basics/juce_gui_basics.h"
 #include <memory>
 
+#include "main_component.h"
+#include "juce_gui_basics/juce_gui_basics.h"
+#include <memory>
+#include <thread>
+#include <future>
+#include <vector>
+#include <chrono>
+
 MainComponent::MainComponent(std::shared_ptr<Queue<MidiCommand, 1024>> q, std::unique_ptr<TrackHandler> th)
     : m_queue(std::move(q)), 
       m_pianoroll(q, 0),
@@ -9,11 +17,16 @@ MainComponent::MainComponent(std::shared_ptr<Queue<MidiCommand, 1024>> q, std::u
       m_addTrackButton("+ Add VST"),
       m_renderButton("Render to WAV"),
       m_filenameLabel("Filename:", "Output filename:"),
+      m_timeLabel("", "Render time will be shown here"),
       m_trackHandler(std::move(th)) {
     
     m_closePianoButton.onClick = [this] { closePianoRoll(); };
     m_addTrackButton.onClick = [this] { addInstrumentTrack(); };
     m_renderButton.onClick = [this] { renderToWav(); };
+    
+    m_renderModeCombo.addItem("Sequential Rendering", 1);
+    m_renderModeCombo.addItem("Parallel Rendering", 2);
+    m_renderModeCombo.setSelectedId(1);
     
     m_filenameEditor.setText("output");
     m_filenameEditor.setMultiLine(false);
@@ -23,8 +36,10 @@ MainComponent::MainComponent(std::shared_ptr<Queue<MidiCommand, 1024>> q, std::u
     m_pianoroll.setEnabled(false);
     m_closePianoButton.setVisible(false);
     m_renderButton.setVisible(true);
+    m_renderModeCombo.setVisible(true);
     m_filenameEditor.setVisible(true);
     m_filenameLabel.setVisible(true);
+    m_timeLabel.setVisible(true);
     
     m_trackList.onTrackSelected = [this](int index) {
         showPianoRollForTrack(index);
@@ -33,8 +48,10 @@ MainComponent::MainComponent(std::shared_ptr<Queue<MidiCommand, 1024>> q, std::u
     addAndMakeVisible(m_closePianoButton);
     addAndMakeVisible(m_addTrackButton);
     addAndMakeVisible(m_renderButton);
+    addAndMakeVisible(m_renderModeCombo);
     addAndMakeVisible(m_filenameLabel);
     addAndMakeVisible(m_filenameEditor);
+    addAndMakeVisible(m_timeLabel);
     addAndMakeVisible(m_trackList);
     addChildComponent(m_pianoroll);
     
@@ -57,8 +74,10 @@ void MainComponent::resized() {
         m_closePianoButton.setVisible(true);
         m_addTrackButton.setVisible(true);
         m_renderButton.setVisible(false);
+        m_renderModeCombo.setVisible(false);
         m_filenameLabel.setVisible(false);
         m_filenameEditor.setVisible(false);
+        m_timeLabel.setVisible(false);
         
         m_closePianoButton.setBounds(topPanel.removeFromLeft(40));
         topPanel.removeFromLeft(10);
@@ -71,16 +90,23 @@ void MainComponent::resized() {
         m_closePianoButton.setVisible(false);
         m_addTrackButton.setVisible(true);
         m_renderButton.setVisible(true);
+        m_renderModeCombo.setVisible(true);
         m_filenameLabel.setVisible(true);
         m_filenameEditor.setVisible(true);
+        m_timeLabel.setVisible(true);
         
-        auto buttonArea = topPanel.removeFromLeft(600);
+        auto buttonArea = topPanel.removeFromLeft(800);
         m_addTrackButton.setBounds(buttonArea.removeFromLeft(120));
         buttonArea.removeFromLeft(10);
         m_renderButton.setBounds(buttonArea.removeFromLeft(150));
         buttonArea.removeFromLeft(10);
+        m_renderModeCombo.setBounds(buttonArea.removeFromLeft(150).reduced(2));
+        buttonArea.removeFromLeft(10);
         m_filenameLabel.setBounds(buttonArea.removeFromLeft(80));
         m_filenameEditor.setBounds(buttonArea.removeFromLeft(200).reduced(2));
+        
+        auto timePanel = bounds.removeFromTop(25).reduced(5);
+        m_timeLabel.setBounds(timePanel);
         
         m_trackList.setBounds(bounds);
         m_trackList.setVisible(true);
@@ -165,33 +191,18 @@ void MainComponent::renderToWav() {
         }
         
         std::vector<juce::File> tempWavFiles;
+        double renderTime = 0.0;
+        bool success = false;
         
-        for (int trackIndex = 0; trackIndex < m_trackHandler->getNumTracks(); ++trackIndex) {
-            auto* track = m_trackHandler->getTrack(trackIndex);
-            auto* pianoRollData = m_pianoroll.getTrackData(trackIndex);
-            
-            if (!track || !pianoRollData) continue;
-            
-            juce::String trackFileName = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                .getChildFile("temp_track" + juce::String(trackIndex) + ".wav").getFullPathName();
-            
-            auto midiSequence = pianoRollData->toMidiSequence(120.0);
-            
-            if (midiSequence.getNumEvents() == 0) continue;
-            
-            try {
-                track->renderSequenceIntoWav(midiSequence, trackFileName.toStdString());
-                tempWavFiles.push_back(juce::File(trackFileName));
-                
-            } catch (const std::exception& e) {
-                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                    "Render error",
-                    "Failed to render track " + juce::String(trackIndex + 1) + ": " + e.what(),
-                    "OK");
-            }
+        int renderMode = m_renderModeCombo.getSelectedId();
+        
+        if (renderMode == 1) {
+            success = renderTracksSequential(tempWavFiles, renderTime);
+        } else if (renderMode == 2) {
+            success = renderTracksParallel(tempWavFiles, renderTime);
         }
         
-        if (tempWavFiles.empty()) {
+        if (!success || tempWavFiles.empty()) {
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
                 "No audio",
                 "No tracks were rendered.",
@@ -199,17 +210,127 @@ void MainComponent::renderToWav() {
             return;
         }
         
+        auto mixStart = std::chrono::high_resolution_clock::now();
+        
         mixWavFiles(tempWavFiles, outputPath);
+        
+        auto mixEnd = std::chrono::high_resolution_clock::now();
+        double mixTime = std::chrono::duration<double>(mixEnd - mixStart).count();
         
         for (auto& tempFile : tempWavFiles) {
             tempFile.deleteFile();
         }
         
+        // Обновляем метку со временем
+        juce::String modeStr = (renderMode == 1) ? "Sequential" : "Parallel";
+        juce::String timeStr = juce::String::formatted(
+            "%s render: %.2fs, Mix: %.2fs, Total: %.2fs",
+            modeStr.toRawUTF8(),
+            renderTime,
+            mixTime,
+            renderTime + mixTime
+        );
+        
+        m_timeLabel.setText(timeStr, juce::dontSendNotification);
+        
         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
             "Render complete",
-            "All tracks mixed to: " + outputPath,
+            juce::String(tempWavFiles.size()) + " tracks rendered (" + modeStr + ")\n" +
+            "Render time: " + juce::String(renderTime, 2) + "s\n" +
+            "Mix time: " + juce::String(mixTime, 2) + "s\n" +
+            "Total time: " + juce::String(renderTime + mixTime, 2) + "s\n" +
+            "Output: " + outputPath,
             "OK");
     });
+}
+
+bool MainComponent::renderTracksSequential(std::vector<juce::File>& tempWavFiles, double& renderTime) {
+    auto startTime = std::chrono::high_resolution_clock::now();
+    
+    for (int trackIndex = 0; trackIndex < m_trackHandler->getNumTracks(); ++trackIndex) {
+        auto* track = m_trackHandler->getTrack(trackIndex);
+        auto* pianoRollData = m_pianoroll.getTrackData(trackIndex);
+        
+        if (!track || !pianoRollData) continue;
+        
+        juce::String trackFileName = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("temp_track" + juce::String(trackIndex) + ".wav").getFullPathName();
+        
+        auto midiSequence = pianoRollData->toMidiSequence(120.0);
+        
+        if (midiSequence.getNumEvents() == 0) continue;
+        
+        try {
+            track->renderSequenceIntoWav(midiSequence, trackFileName.toStdString());
+            tempWavFiles.push_back(juce::File(trackFileName));
+            
+        } catch (const std::exception& e) {
+            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                "Render error",
+                "Failed to render track " + juce::String(trackIndex + 1) + ": " + e.what(),
+                "OK");
+        }
+    }
+    
+    auto endTime = std::chrono::high_resolution_clock::now();
+    renderTime = std::chrono::duration<double>(endTime - startTime).count();
+    
+    return !tempWavFiles.empty();
+}
+
+bool MainComponent::renderTracksParallel(std::vector<juce::File>& tempWavFiles, double& renderTime) {
+    auto startTime = std::chrono::high_resolution_clock::now();
+    
+    int totalTracks = m_trackHandler->getNumTracks();
+    
+    std::vector<std::thread> threads;
+    std::vector<std::pair<bool, juce::String>> results(totalTracks);
+    
+    for (int trackIndex = 0; trackIndex < totalTracks; ++trackIndex) {
+        auto* track = m_trackHandler->getTrack(trackIndex);
+        auto* pianoRollData = m_pianoroll.getTrackData(trackIndex);
+        
+        if (!track || !pianoRollData) {
+            results[trackIndex] = {false, ""};
+            continue;
+        }
+        
+        auto midiSequence = pianoRollData->toMidiSequence(120.0);
+        if (midiSequence.getNumEvents() == 0) {
+            results[trackIndex] = {false, ""};
+            continue;
+        }
+        
+        juce::String trackFileName = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("parallel_track" + juce::String(trackIndex) + ".wav").getFullPathName();
+        
+        threads.emplace_back([track, midiSequence, trackFileName, trackIndex, &results]() {
+            try {
+                track->renderSequenceIntoWav(midiSequence, trackFileName.toStdString());
+                results[trackIndex] = {true, trackFileName};
+            } catch (const std::exception& e) {
+                juce::Logger::writeToLog("Failed track " + juce::String(trackIndex + 1) + ": " + e.what());
+                results[trackIndex] = {false, ""};
+            }
+        });
+    }
+    
+    for (auto& thread : threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+    
+    for (auto& [success, fileName] : results) {
+        if (success && !fileName.isEmpty()) {
+            tempWavFiles.push_back(juce::File(fileName));
+        }
+    }
+    
+    auto endTime = std::chrono::high_resolution_clock::now();
+    renderTime = std::chrono::duration<double>(endTime - startTime).count();
+    
+    return !tempWavFiles.empty();
 }
 
 void MainComponent::mixWavFiles(const std::vector<juce::File>& inputFiles, const juce::String& outputPath) {

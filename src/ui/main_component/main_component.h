@@ -7,6 +7,8 @@
 #include "../../queue/queue.h"
 #include "../../queue/midi_command.h"
 #include <memory>
+#include <vector>
+#include <chrono>
 
 class MainComponent : public juce::Component {
 public:
@@ -21,6 +23,8 @@ private:
     void addInstrumentTrack();
     void showPianoRollForTrack(int trackIndex);
     void renderToWav();
+    bool renderTracksSequential(std::vector<juce::File>& tempWavFiles, double& renderTime);
+    bool renderTracksParallel(std::vector<juce::File>& tempWavFiles, double& renderTime);
     void mixWavFiles(const std::vector<juce::File>&, const juce::String&);
     
     std::shared_ptr<Queue<MidiCommand, 1024>> m_queue;
@@ -31,8 +35,10 @@ private:
     juce::TextButton m_closePianoButton;
     juce::TextButton m_addTrackButton;
     juce::TextButton m_renderButton;
+    juce::ComboBox m_renderModeCombo;  // Выбор режима рендеринга
     juce::TextEditor m_filenameEditor;
     juce::Label m_filenameLabel;
+    juce::Label m_timeLabel;  // Для отображения времени
     
     bool m_pianorollVisible = false;
     int m_currentTrackIndex = 0;

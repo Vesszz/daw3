@@ -7,6 +7,9 @@
 #include <memory>
 #include <string>
 
+/**
+* @brief Хранит vst плагин и взаимодействует с ним
+*/
 class InstrumentalTrack {
 public:
     static std::unique_ptr<juce::AudioPluginInstance> load_plugin(juce::File, float = 44100.0, int = 512); 

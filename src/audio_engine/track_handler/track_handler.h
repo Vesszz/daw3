@@ -6,6 +6,9 @@
 #include <vector>
 #include <memory>
 
+/**
+* @brief Хранит внутри себя дорожки и перенаправляет запросы с AudioEnginе'а в конкретную дорожку 
+*/
 class TrackHandler {
     public:
         TrackHandler();
