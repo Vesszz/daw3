@@ -1,6 +1,46 @@
 #include "instrumental_track.h"
-#include <memory>
-#include "../../../external/JUCE/modules/juce_audio_formats/juce_audio_formats.h"
+#include <stdexcept>
+
+InstrumentalTrack::InstrumentalTrack(std::string name, std::unique_ptr<juce::AudioPluginInstance> plugin)
+    : m_name(std::move(name)), m_audio_plugin_instance(std::move(plugin)) {
+}
+
+InstrumentalTrack::~InstrumentalTrack() {
+    releaseResources();
+}
+
+const juce::String InstrumentalTrack::info() {
+    return m_audio_plugin_instance ? m_audio_plugin_instance->getName() : "No plugin";
+}
+
+void InstrumentalTrack::prepareToPlay(double sampleRate, int blockSize) {
+    m_sampleRate = sampleRate;
+    m_blockSize = blockSize;
+    
+    if (m_audio_plugin_instance) {
+        m_audio_plugin_instance->prepareToPlay(sampleRate, blockSize);
+    }
+}
+
+void InstrumentalTrack::releaseResources() {
+    if (m_audio_plugin_instance) {
+        m_audio_plugin_instance->releaseResources();
+    }
+}
+
+void InstrumentalTrack::renderAudio(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiBuffer) {
+    if (!m_audio_plugin_instance) {
+        buffer.clear();
+        return;
+    }
+    
+    juce::MidiBuffer processedMidi = midiBuffer;
+    m_audio_plugin_instance->processBlock(buffer, processedMidi);
+}
+
+void InstrumentalTrack::addMidiMessage(const juce::MidiMessage& msg, double timestamp) {
+    m_midi_message_sequence.addEvent(msg, timestamp);
+}
 
 std::unique_ptr<juce::AudioPluginInstance> InstrumentalTrack::load_plugin(juce::File filename, float sampleRate, int blockSize) {
     juce::AudioPluginFormatManager formatManager;
@@ -22,19 +62,10 @@ std::unique_ptr<juce::AudioPluginInstance> InstrumentalTrack::load_plugin(juce::
     juce::String errorMessage;
     std::unique_ptr<juce::AudioPluginInstance> inst = formatManager.createPluginInstance(*foundTypes[0], sampleRate, blockSize, errorMessage);
     if (!inst) {
-        return nullptr; // TODO: show errorMessage
+        return nullptr;
     }
     return inst;
 }
-
-
-InstrumentalTrack::InstrumentalTrack(std::string name, std::unique_ptr<juce::AudioPluginInstance> a_p_i)
-    : m_name(name), m_audio_plugin_instance(std::move(a_p_i)), m_midi_message_sequence() {}
-
-const juce::String InstrumentalTrack::info() {
-    return m_audio_plugin_instance.get()->getName(); // TODO: good info
-}
-
 
 static juce::MidiMessageSequence loadMidi(const std::string& path) {
     juce::File file(path);
@@ -109,9 +140,22 @@ static void renderSequence(juce::AudioPluginInstance* plugin, juce::MidiMessageS
     }
 }
 
-void InstrumentalTrack::render_midifile_into_wav(std::string midiPath, std::string wavPath) {
+void InstrumentalTrack::renderMidifileIntoWav(std::string midiPath, std::string wavPath) {
     auto sequence = loadMidi(midiPath);
 
+    auto* plugin = m_audio_plugin_instance.get();
+    double sampleRate = 44100.0;
+    int blockSize = 512;
+
+    preparePlugin(plugin, sampleRate, blockSize);
+
+    auto writer = createWriter(wavPath, sampleRate, plugin->getTotalNumOutputChannels());
+
+    renderSequence(plugin, sequence, *writer, sampleRate, blockSize);
+    plugin->releaseResources();
+}
+
+void InstrumentalTrack::renderSequenceIntoWav(juce::MidiMessageSequence sequence, std::string wavPath) {
     auto* plugin = m_audio_plugin_instance.get();
     double sampleRate = 44100.0;
     int blockSize = 512;

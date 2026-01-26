@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.22)
 project(DAW3 VERSION 0.0.1)
 
 set(JUCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXXX_FLAGS} -g -ggdb3")
 add_subdirectory(${JUCE_DIR})
 
 add_executable(DAW3
@@ -10,6 +12,9 @@ add_executable(DAW3
     src/audio_engine/audio_engine.cpp
     src/audio_engine/instrumental_track/instrumental_track.cpp
     src/audio_engine/track_handler/track_handler.cpp
+    src/queue/queue.h
+    src/queue/queue.cpp
+    src/ui/instrumental_track_list/instrumental_track_list.cpp
     src/ui/main_component/main_component.cpp
     src/ui/main_window/main_window.cpp
     src/ui/pianoroll/pianoroll.cpp

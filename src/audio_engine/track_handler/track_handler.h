@@ -2,20 +2,29 @@
 
 #include "../../juce_header.h"
 #include "../instrumental_track/instrumental_track.h"
-#include "../audio_track/audio_track.h"
+#include "../../queue/midi_command.h"
 #include <vector>
+#include <memory>
 
 class TrackHandler {
     public:
-        TrackHandler() = default;
-        ~TrackHandler() = default;
-        void save(std::string);
-        void render(std::string);
-        void add_track(InstrumentalTrack&&);
-        void add_track(AudioTrack&&);
-        void remove_track(InstrumentalTrack);
-        void remove_track(AudioTrack);
+        TrackHandler();
+        ~TrackHandler();
+        
+        void prepareToPlay(double sampleRate, int blockSize);
+        void releaseResources();
+        
+        void renderAudio(juce::AudioBuffer<float>& audioBuffer, juce::MidiBuffer& midiBuffer);
+        
+        void addTrack(std::shared_ptr<InstrumentalTrack> track);
+        InstrumentalTrack* addTrack(std::string name, std::unique_ptr<juce::AudioPluginInstance> plugin);
+        void removeTrack(size_t index);
+        size_t getNumTracks() const;
+        InstrumentalTrack* getTrack(size_t index);
+        
     private:
-        std::vector<InstrumentalTrack> m_instrumental_tracks;
-        std::vector<AudioTrack> m_audio_tracks;    
+        std::vector<std::shared_ptr<InstrumentalTrack>> m_instrumental_tracks;
+        juce::AudioBuffer<float> m_mixBuffer;
+        double m_sampleRate = 44100.0;
+        int m_blockSize = 512;
 };
